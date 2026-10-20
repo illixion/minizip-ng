@@ -235,8 +235,9 @@ int32_t mz_stream_split_read(void *stream, void *buf, int32_t size) {
             if (size != bytes_left) /* Report read from previous disk before switching */
                 break;
             err = mz_stream_split_goto_disk(stream, split->current_disk + 1);
+            /* The disk with the central directory follows the last numbered disk */
             if (err == MZ_EXIST_ERROR)
-                split->current_disk = -1;
+                err = mz_stream_split_goto_disk(stream, -1);
             if (err != MZ_OK)
                 return err;
         }
@@ -331,8 +332,10 @@ int32_t mz_stream_split_seek(void *stream, int64_t offset, int32_t origin) {
         position = mz_stream_tell(split->stream.base);
         disk_left = split->current_disk_size - position;
 
-        while (offset > disk_left) {
+        while (offset > disk_left && split->current_disk >= 0) {
             err = mz_stream_split_goto_disk(stream, split->current_disk + 1);
+            if (err == MZ_EXIST_ERROR)
+                err = mz_stream_split_goto_disk(stream, -1);
             if (err != MZ_OK)
                 return err;
 

@@ -9,10 +9,16 @@
 */
 
 #include "mz.h"
+#include "mz_os.h"
 #include "mz_strm.h"
 #include "mz_strm_mem.h"
+#include "mz_strm_os.h"
+#include "mz_strm_split.h"
 
 #include <gtest/gtest.h>
+
+#include <fstream>
+#include <string>
 
 typedef void (*stream_test_cb)(const char *name, int32_t count, const uint8_t *find, int32_t find_size,
                                mz_stream_find_cb find_cb);
@@ -230,4 +236,55 @@ TEST_P(stream_find, find) {
 
     for (c = 1; c < (int32_t)strlen(find); c += 1)
         param.test_cb(param.name, 2096, (const uint8_t *)find, c, param.find_cb);
+}
+
+class stream_split_test : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        /* Disks as Info-ZIP writes them, with the data running on into the .zip */
+        std::ofstream("split_test.z01", std::ios::binary) << std::string("PK\x07\x08", 4) << "0123";
+        std::ofstream("split_test.z02", std::ios::binary) << "4567";
+        std::ofstream("split_test.zip", std::ios::binary) << "89";
+
+        os_stream = mz_stream_os_create();
+        split_stream = mz_stream_split_create();
+        ASSERT_NE(os_stream, nullptr);
+        ASSERT_NE(split_stream, nullptr);
+        mz_stream_set_base(split_stream, os_stream);
+        ASSERT_EQ(mz_stream_open(split_stream, "split_test.zip", MZ_OPEN_MODE_READ), MZ_OK);
+        ASSERT_EQ(mz_stream_set_prop_int64(split_stream, MZ_STREAM_PROP_DISK_NUMBER, 0), MZ_OK);
+    }
+
+    void TearDown() override {
+        mz_stream_close(split_stream);
+        mz_stream_delete(&split_stream);
+        mz_stream_delete(&os_stream);
+
+        mz_os_unlink("split_test.z01");
+        mz_os_unlink("split_test.z02");
+        mz_os_unlink("split_test.zip");
+    }
+
+    void *os_stream = nullptr;
+    void *split_stream = nullptr;
+};
+
+TEST_F(stream_split_test, read_continues_into_last_disk) {
+    char buf[16];
+    int32_t total = 0;
+    int32_t read = 0;
+
+    while ((read = mz_stream_read(split_stream, buf + total, (int32_t)sizeof(buf) - total)) > 0)
+        total += read;
+
+    EXPECT_EQ(read, 0);
+    EXPECT_EQ(std::string(buf, total), "0123456789");
+}
+
+TEST_F(stream_split_test, seek_continues_into_last_disk) {
+    char c = 0;
+
+    ASSERT_EQ(mz_stream_seek(split_stream, 9, MZ_SEEK_CUR), MZ_OK);
+    ASSERT_EQ(mz_stream_read(split_stream, &c, 1), 1);
+    EXPECT_EQ(c, '9');
 }
