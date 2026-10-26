@@ -124,6 +124,10 @@ TEST(zip_entry_crypt, rejects_altered_pkcrypt_data) {
 TEST(zip_entry_crypt, rejects_altered_aes1_data) {
     test_altered_encrypted_entry(1);
 }
+
+TEST(zip_entry_crypt, rejects_altered_aes2_data) {
+    test_altered_encrypted_entry(2);
+}
 #endif
 
 #if !defined(_WIN32) && defined(HAVE_SYMLINK)
